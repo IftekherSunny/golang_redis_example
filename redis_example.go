@@ -13,6 +13,9 @@ const (
 	MAX_ACTIVE = 10
 )
 
+// Redis pool
+var redisPool *redis.Pool
+
 // Redis struct
 type Redis struct {
 
@@ -34,29 +37,33 @@ func (self *Redis) UseDefaultConfiguration() {
 }
 
 // Get redis pool
-func (self *Redis) getPool() *redis.Pool {
-	return &redis.Pool{
-		MaxIdle:     self.maxIdle,
-		MaxActive:   self.maxActive,
-		Wait:        true,
-		IdleTimeout: 120 * time.Second,
-		Dial: func() (redis.Conn, error) {
-			return redis.DialURL(self.rawUrl)
-		},
-		TestOnBorrow: func(c redis.Conn, t time.Time) error {
-			if time.Since(t) < 10*time.Second {
-				return nil
-			}
+func (r *Redis) getPool() *redis.Pool {
+	if redisPool == nil {
+		redisPool = &redis.Pool{
+			MaxIdle:     r.maxIdle,
+			MaxActive:   r.maxActive,
+			Wait:        true,
+			IdleTimeout: 120 * time.Second,
+			Dial: func() (redis.Conn, error) {
+				return redis.DialURL(r.rawUrl)
+			},
+			TestOnBorrow: func(c redis.Conn, t time.Time) error {
+				if time.Since(t) < 10*time.Second {
+					return nil
+				}
 
-			_, err := c.Do("PING")
-			return err
-		},
+				_, err := c.Do("PING")
+				return err
+			},
+		}
 	}
+
+	return redisPool
 }
 
 // Store value into redis by the given key
-func (self *Redis) Put(key string, value string, time int) (string, error) {
-	connection := self.getPool().Get()
+func (r *Redis) Put(key string, value string, time int) (string, error) {
+	connection := r.getPool().Get()
 	defer connection.Close()
 
 	reply, error := redis.String(connection.Do("SETEX", key, time, value))
@@ -65,8 +72,8 @@ func (self *Redis) Put(key string, value string, time int) (string, error) {
 }
 
 // Get value from redis by the given key
-func (self *Redis) Get(key string) (string, error) {
-	connection := self.getPool().Get()
+func (r *Redis) Get(key string) (string, error) {
+	connection := r.getPool().Get()
 	defer connection.Close()
 
 	reply, error := redis.String(connection.Do("GET", key))
@@ -75,8 +82,8 @@ func (self *Redis) Get(key string) (string, error) {
 }
 
 // Delete value from redis by the given key
-func (self *Redis) Forget(key string) (string, error) {
-	connection := self.getPool().Get()
+func (r *Redis) Forget(key string) (string, error) {
+	connection := r.getPool().Get()
 	defer connection.Close()
 
 	reply, error := redis.String(connection.Do("DEL", key))
